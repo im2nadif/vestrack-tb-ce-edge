@@ -1,0 +1,82 @@
+name: Build dan Deploy ThingsBoard
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout kode
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+          distribution: 'corretto'  # Use Corretto (Amazon's JDK distribution)
+          java-version: '21'
+          cache: 'maven'  # Cache Maven dependencies to speed up future builds
+
+    - name: Install Maven 3.8.x
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y maven
+        mvn -version  # Verify Maven version after installation
+
+    - name: Install Gradle 7.x
+      run: |
+        sudo apt-get install -y wget unzip
+        wget https://services.gradle.org/distributions/gradle-7.5.1-bin.zip
+        sudo unzip -d /opt/gradle gradle-7.5.1-bin.zip
+        # Remove any existing symlink or file that may block the new symlink
+        sudo rm -f /usr/bin/gradle
+        # Create new symlink for gradle
+        sudo ln -s /opt/gradle/gradle-7.5.1/bin/gradle /usr/bin/gradle
+        gradle -v  # Verify Gradle version after installation
+        
+    - name: Install Node.js, npm, and Yarn
+      run: |
+        # Install Node.js (LTS version)
+        curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+        sudo apt-get install -y nodejs
+        node -v  # Verify Node.js version
+        npm -v   # Verify npm version
+
+        # Install Yarn
+        npm install -g yarn
+        yarn -v  # Verify Yarn version
+
+    - name: Clean up unnecessary caches
+      run: |
+        # Clean only UI related caches to avoid issues with Maven and Gradle caches
+        rm -rf ui-ngx/node_modules
+
+    - name: Build dengan Maven
+      run: mvn -T 1C license:format clean install -DskipTests -Ddockerfile.skip=false
+
+    - name: Verify if Dockerfile exists
+      run: |
+        if [ ! -f "Dockerfile" ]; then
+          echo "Dockerfile not found, please ensure it's in the root directory."
+          exit 1
+        fi
+
+    - name: Build Docker Image
+      run: |
+        docker build -t imnadif/vestrack-tb-cloud:latest .
+
+    - name: Login ke Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Push Docker Image ke Docker Hub
+      run: |
+        docker push imnadif/vestrack-tb-cloud:latest
